@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent · 智能对话</title>
+    <script>
+        // IDEA 的 HTML 预览和 file:// 页面不由 Spring Boot 提供，请求 /api/chat 会发错位置。
+        // 从这两种入口打开时，直接切换到后端提供的页面，继续使用同源 API 和 WebSocket。
+        if (location.protocol === 'file:' || location.port === '63342') {
+            location.replace('http://localhost:8080/index.html');
+        }
+    </script>
+    <style>
+        :root {
+            color-scheme: light;
+            --canvas: #fffdf9;
+            --sidebar: #f6f4ef;
+            --surface: #fffefa;
+            --text: #302d2a;
+            --muted: #837e77;
+            --line: #e9e4dc;
+            --accent: #b76344;
+            --accent-dark: #954a30;
+            --accent-soft: #f8e9df;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; color: var(--text); background: var(--canvas); font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; }
+        button, select, textarea { font: inherit; }
+        button { cursor: pointer; }
+        button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid #d8a58e; outline-offset: 2px; }
+        .app-shell { display: grid; grid-template-columns: 254px minmax(0, 1fr); height: 100vh; height: 100dvh; overflow: hidden; }
+        .sidebar { display: flex; flex-direction: column; min-height: 0; padding: 25px 15px 18px; background: var(--sidebar); border-right: 1px solid var(--line); }
+        .brand { display: flex; align-items: center; gap: 11px; padding: 2px 12px 29px; font-family: Georgia, "Songti SC", serif; font-size: 24px; font-weight: 700; letter-spacing: -.035em; }
+        .brand-mark { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; color: #fff; background: var(--accent); font-family: Georgia, serif; font-size: 23px; line-height: 1; }
+        .new-chat { display: flex; align-items: center; gap: 11px; width: 100%; height: 44px; padding: 0 13px; color: var(--text); background: transparent; border: 1px solid #ddd7ce; border-radius: 10px; font-size: 14px; font-weight: 600; text-align: left; transition: background .2s, border-color .2s; }
+        .new-chat:hover { background: #fffefa; border-color: #cfc5b8; }
+        .new-chat svg, .top-new svg, .menu-button svg, .send-button svg { width: 17px; height: 17px; flex: none; }
+        .side-label { margin: 32px 12px 11px; color: #938d85; font-size: 11px; font-weight: 700; letter-spacing: .12em; }
+        .session-item { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 0 12px; border-radius: 9px; background: #eae6df; font-size: 13px; font-weight: 600; }
+        .session-item svg { width: 16px; height: 16px; color: #736b63; }
+        .sidebar-bottom { margin-top: auto; padding: 14px 11px 0; border-top: 1px solid #e5dfd6; color: #8b857d; font-size: 12px; line-height: 1.6; }
+        .service-status { display: flex; align-items: center; gap: 8px; color: #6e685f; font-weight: 600; }
+        .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #c9b99d; }
+        .service-status.ready .status-dot { background: #659779; }
+        .service-status.error .status-dot { background: #c97565; }
+        .sidebar-bottom p { margin: 5px 0 0 15px; }
+        .main-area { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; height: 71px; padding: 0 clamp(22px, 4vw, 46px); border-bottom: 1px solid #f0ece6; flex: none; }
+        .topbar-title { display: flex; align-items: center; gap: 13px; min-width: 0; font-size: 14px; font-weight: 650; }
+        .topbar-title small { color: #a7a097; font-size: 13px; font-weight: 400; }
+        .top-new { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: #716c65; background: transparent; border: 0; border-radius: 8px; font-size: 13px; }
+        .top-new:hover { color: var(--accent-dark); background: var(--accent-soft); }
+        .menu-button { display: none; align-items: center; justify-content: center; width: 36px; height: 36px; color: var(--text); background: transparent; border: 0; border-radius: 8px; }
+        .chat-box { display: flex; flex: 1; flex-direction: column; gap: 29px; min-height: 0; overflow-y: auto; padding: 32px max(30px, calc((100% - 830px) / 2)) 40px; scroll-behavior: smooth; }
+        .chat-box.empty { justify-content: center; }
+        .welcome { width: 100%; padding-bottom: min(10vh, 88px); }
+        .welcome[hidden] { display: none; }
+        .welcome-mark { display: grid; place-items: center; width: 51px; height: 51px; margin-bottom: 23px; border-radius: 16px; color: var(--accent); background: var(--accent-soft); font-family: Georgia, serif; font-size: 37px; line-height: 1; }
+        .welcome-kicker { margin: 0 0 9px; color: var(--accent); font-size: 12px; font-weight: 750; letter-spacing: .14em; }
+        .welcome h1 { margin: 0; font-family: Georgia, "Songti SC", "STSong", serif; font-size: clamp(31px, 4vw, 45px); font-weight: 600; letter-spacing: -.04em; line-height: 1.3; }
+        .welcome p { margin: 14px 0 30px; color: #79736c; font-size: 15px; line-height: 1.8; }
+        .suggestions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; }
+        .suggestion { min-height: 91px; padding: 15px 16px; color: var(--text); background: #fffefa; border: 1px solid var(--line); border-radius: 13px; text-align: left; box-shadow: 0 2px 8px #51473606; transition: transform .2s, border-color .2s, box-shadow .2s; }
+        .suggestion:hover { transform: translateY(-2px); border-color: #d8b7a4; box-shadow: 0 8px 20px #9b705019; }
+        .suggestion strong { display: block; margin-bottom: 7px; font-size: 13px; }
+        .suggestion span { color: #8a837b; font-size: 12px; line-height: 1.5; }
+        .message { width: 100%; animation: arrive .24s ease-out; }
+        .message.user { display: flex; justify-content: flex-end; }
+        .message.user .message-body { max-width: min(82%, 690px); padding: 13px 18px; border: 1px solid #eee5dc; border-radius: 17px 17px 5px 17px; background: #f4f0eb; }
+        .message.agent { display: flex; align-items: flex-start; gap: 13px; }
+        .message-avatar { display: grid; place-items: center; width: 28px; height: 28px; flex: none; margin-top: 1px; border-radius: 9px; color: #fff; background: var(--accent); font-family: Georgia, serif; font-size: 21px; }
+        .message-main { min-width: 0; flex: 1; padding-top: 1px; }
+        .message-label { margin: 0 0 8px; color: #746d66; font-size: 12px; font-weight: 650; }
+        .message-label span { color: #a29b93; font-weight: 400; }
+        .message-body { color: #38332f; font-size: 15px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .message.agent .message-body:empty::after { content: "正在思考…"; color: #aaa39a; animation: pulse 1.3s ease-in-out infinite; }
+        .message.error .message-body { color: #ae4d44; }
+        .message.system { align-self: center; width: auto; padding: 6px 12px; border-radius: 99px; color: #867e74; background: #f5f1eb; font-size: 12px; }
+        .composer-wrap { flex: none; padding: 8px max(22px, calc((100% - 830px) / 2)) 19px; background: linear-gradient(to bottom, #fffdfa00, var(--canvas) 16%); }
+        .composer { border: 1px solid #ded8ce; border-radius: 17px; background: var(--surface); box-shadow: 0 9px 30px #4a3c2b12, 0 2px 5px #4a3c2b08; transition: border-color .2s, box-shadow .2s; }
+        .composer:focus-within { border-color: #d2a58e; box-shadow: 0 10px 32px #7d4e3517, 0 0 0 3px #edd9cb77; }
+        .message-input { display: block; width: 100%; min-height: 92px; max-height: 220px; resize: none; padding: 18px 19px 6px; color: var(--text); background: transparent; border: 0; outline: 0; font-size: 15px; line-height: 1.6; }
+        .message-input:focus-visible { outline: 0; }
+        .message-input::placeholder { color: #aaa39a; }
+        .composer-toolbar { display: flex; align-items: center; gap: 8px; min-height: 51px; padding: 5px 10px 10px 13px; }
+        .control-pill { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 5px 8px; border: 1px solid transparent; border-radius: 9px; color: #79736b; background: #f8f5f0; font-size: 12px; }
+        .control-pill span { white-space: nowrap; }
+        .control-pill select { min-width: 0; max-width: 175px; color: #5f5851; background: transparent; border: 0; outline: 0; font-size: 12px; font-weight: 600; cursor: pointer; }
+        .control-pill select:disabled { color: #aca59c; cursor: not-allowed; }
+        .toolbar-spacer { flex: 1; }
+        .send-button { display: grid; place-items: center; width: 34px; height: 34px; flex: none; color: white; background: var(--accent); border: 0; border-radius: 10px; transition: background .2s, transform .2s; }
+        .send-button:hover:not(:disabled) { background: var(--accent-dark); transform: translateY(-1px); }
+        .send-button:disabled { background: #d8d2c9; cursor: not-allowed; }
+        .composer-note { display: flex; justify-content: space-between; gap: 14px; min-height: 20px; margin: 10px 3px 0; color: #a19a91; font-size: 11px; line-height: 1.5; }
+        .model-hint { max-width: 75%; text-align: right; }
+        .toast { position: fixed; right: 24px; bottom: 25px; z-index: 40; padding: 11px 15px; border-radius: 10px; color: #fff; background: #38322d; box-shadow: 0 10px 28px #27211a33; font-size: 13px; }
+        .toast[hidden] { display: none; }
+        .sidebar-scrim { display: none; }
+        @keyframes arrive { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulse { 50% { opacity: .5; } }
+        @media (max-width: 900px) {
+            .app-shell { grid-template-columns: minmax(0, 1fr); }
+            .sidebar { position: fixed; top: 0; bottom: 0; left: 0; z-index: 31; width: 254px; transform: translateX(-100%); transition: transform .24s ease; box-shadow: 12px 0 30px #31261d10; }
+            .sidebar-open .sidebar { transform: translateX(0); }
+            .sidebar-scrim { position: fixed; inset: 0; z-index: 30; display: block; background: #241c1666; opacity: 0; pointer-events: none; transition: opacity .24s ease; }
+            .sidebar-open .sidebar-scrim { opacity: 1; pointer-events: auto; }
+            .menu-button { display: flex; }
+            .topbar { padding: 0 20px; }
+        }
+        @media (max-width: 620px) {
+            .topbar { height: 62px; }
+            .topbar-title small, .top-new span { display: none; }
+            .chat-box { padding: 25px 19px 26px; gap: 24px; }
+            .welcome { padding-bottom: 34px; }
+            .suggestions { grid-template-columns: 1fr; }
+            .suggestion { min-height: 69px; }
+            .composer-wrap { padding: 6px 12px 11px; }
+            .message-input { min-height: 82px; }
+            .control-pill span { display: none; }
+            .control-pill select { max-width: 133px; }
+            .composer-note { flex-direction: column; gap: 2px; }
+            .model-hint { max-width: 100%; text-align: left; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+        }
+    </style>
+</head>
+<body>
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="侧边栏">
+        <div class="brand"><span class="brand-mark" aria-hidden="true">✳</span><span>Agent</span></div>
+        <button class="new-chat" type="button" data-reset>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            新对话
+        </button>
+        <div class="side-label">工作区</div>
+        <div class="session-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 5h14v14H8l-3 2V5Z"/><path d="M8 10h8M8 14h5"/></svg>
+            当前对话
+        </div>
+        <div class="sidebar-bottom">
+            <div class="service-status" id="serviceStatus"><span class="status-dot"></span><span id="serviceText">正在连接</span></div>
+            <p>让问题从这里开始。</p>
+        </div>
+    </aside>
+    <button class="sidebar-scrim" id="sidebarScrim" type="button" aria-label="关闭侧边栏"></button>
+
+    <div class="main-area">
+        <header class="topbar">
+            <div class="topbar-title">
+                <button class="menu-button" id="menuButton" type="button" aria-label="打开侧边栏" aria-expanded="false">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+                </button>
+                <span>当前对话</span><small>与你的智能助手交流</small>
+            </div>
+            <button class="top-new" type="button" data-reset>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                <span>新对话</span>
+            </button>
+        </header>
+
+        <main class="chat-box empty" id="chatBox" aria-live="polite">
+            <section class="welcome" id="welcome">
+                <div class="welcome-mark" aria-hidden="true">✳</div>
+                <div class="welcome-kicker">YOUR AI ASSISTANT</div>
+                <h1>今天想做些什么？</h1>
+                <p>从一个问题开始。你的助手可以调用工具、整理思路，也可以陪你探索新的想法。</p>
+                <div class="suggestions">
+                    <button class="suggestion" type="button" data-prompt="今天北京天气怎么样？"><strong>看看天气</strong><span>查询城市的天气信息</span></button>
+                    <button class="suggestion" type="button" data-prompt="帮我计算 128 乘以 24，再解释计算过程。"><strong>快速计算</strong><span>把数字问题交给工具</span></button>
+                    <button class="suggestion" type="button" data-prompt="请搜索 LangChain4j 的官方工具调用文档，给我 3 条结果并附来源链接。"><strong>搜索资料</strong><span>查找资料并保留来源链接</span></button>
+                </div>
+            </section>
+        </main>
+
+        <div class="composer-wrap">
+            <form class="composer" id="chatForm">
+                <textarea class="message-input" id="messageInput" rows="2" placeholder="给 Agent 发消息..." aria-label="输入消息"></textarea>
+                <div class="composer-toolbar">
+                    <label class="control-pill" for="modelSelect"><span>模型</span><select id="modelSelect" disabled><option>加载中...</option></select></label>
+                    <label class="control-pill" for="streamMode"><span>传输</span><select id="streamMode"><option value="sse">SSE</option><option value="websocket">WebSocket</option></select></label>
+                    <span class="toolbar-spacer"></span>
+                    <button class="send-button" id="sendBtn" type="submit" disabled aria-label="发送消息" title="发送消息">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
+                    </button>
+                </div>
+            </form>
+            <div class="composer-note"><span>Enter 发送 · Shift + Enter 换行</span><span class="model-hint" id="modelHint"></span></div>
+        </div>
+    </div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+    // 请求路径：输入内容 → sendMessage() → sendSse() → AgentController.stream()。
+    // 返回路径：SSE delta → consumeBlock() → appendToken() → 更新当前回复。
+    const API_BASE_URL = '/api/chat';
+    const chatBox = document.getElementById('chatBox');
+    const welcome = document.getElementById('welcome');
+    const chatForm = document.getElementById('chatForm');
+    const messageInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const streamMode = document.getElementById('streamMode');
+    const modelSelect = document.getElementById('modelSelect');
+    const modelHint = document.getElementById('modelHint');
+    const serviceStatus = document.getElementById('serviceStatus');
+    const serviceText = document.getElementById('serviceText');
+    const toast = document.getElementById('toast');
+    const menuButton = document.getElementById('menuButton');
+    const sidebarScrim = document.getElementById('sidebarScrim');
+    let hasMessages = false;
+    let isSending = false;
+    let toastTimer;
+
+    function scrollToLatest() {
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function resizeMessageInput() {
+        messageInput.style.height = 'auto';
+        messageInput.style.height = Math.min(messageInput.scrollHeight, 220) + 'px';
+    }
+
+    function setSidebarOpen(open) {
+        document.body.classList.toggle('sidebar-open', open);
+        menuButton.setAttribute('aria-expanded', String(open));
+    }
+
+    function showToast(text) {
+        toast.textContent = text;
+        toast.hidden = false;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => { toast.hidden = true; }, 2800);
+    }
+
+    // 页面启动后从后端读取模型列表；未配置 Key 的模型保留显示但不可选。
+    async function loadModels() {
+        try {
+            const response = await fetch(API_BASE_URL + '/models', { cache: 'no-store' });
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            const models = await response.json();
+            const firstAvailable = models.find(model => model.available);
+            if (!firstAvailable) throw new Error('没有可用模型');
+
+            modelSelect.replaceChildren();
+            for (const model of models) {
+                const option = document.createElement('option');
+                option.value = model.id;
+                option.textContent = model.label + (model.available ? '' : '（未配置 Key）');
+                option.disabled = !model.available;
+                modelSelect.appendChild(option);
+            }
+            modelSelect.value = models.some(model => model.id === 'qwen' && model.available)
+                ? 'qwen' : firstAvailable.id;
+            modelSelect.disabled = false;
+            sendBtn.disabled = false;
+            modelHint.textContent = models.some(model => model.id.startsWith('deepseek-') && !model.available)
+                ? '配置 DeepSeek Key 后重启，即可选择云端模型。'
+                : '切换模型将对下一条消息生效。';
+            serviceStatus.classList.add('ready');
+            serviceText.textContent = '已连接';
+        } catch (error) {
+            modelHint.textContent = '模型列表加载失败：' + error.message + '。请检查服务后刷新页面。';
+            serviceStatus.classList.add('error');
+            serviceText.textContent = '连接失败';
+        }
+    }
+
+    function appendMessage(text, type, modelLabel) {
+        welcome.hidden = true;
+        chatBox.classList.remove('empty');
+
+        const row = document.createElement('div');
+        row.className = 'message ' + type;
+        const body = document.createElement('div');
+        body.className = 'message-body';
+        body.textContent = text;
+
+        if (type === 'agent') {
+            const avatar = document.createElement('span');
+            avatar.className = 'message-avatar';
+            avatar.setAttribute('aria-hidden', 'true');
+            avatar.textContent = '✳';
+            const main = document.createElement('div');
+            main.className = 'message-main';
+            const label = document.createElement('div');
+            label.className = 'message-label';
+            label.textContent = 'Agent';
+            if (modelLabel) {
+                const modelName = document.createElement('span');
+                modelName.textContent = '  ·  ' + modelLabel;
+                label.appendChild(modelName);
+            }
+            main.append(label, body);
+            row.append(avatar, main);
+        } else {
+            row.appendChild(body);
+        }
+
+        chatBox.appendChild(row);
+        scrollToLatest();
+        return body;
+    }
+
+    async function sendMessage() {
+        if (sendBtn.disabled || isSending) return;
+        const text = messageInput.value.trim();
+        if (!text) return;
+        const modelId = modelSelect.value;
+        const modelLabel = modelSelect.selectedOptions[0].textContent;
+
+        hasMessages = true;
+        appendMessage(text, 'user');
+        messageInput.value = '';
+        resizeMessageInput();
+        isSending = true;
+        sendBtn.disabled = true;
+        modelSelect.disabled = true;
+        const replyBody = appendMessage('', 'agent', modelLabel);
+        const appendToken = token => {
+            replyBody.textContent += token;
+            scrollToLatest();
+        };
+
+        try {
+            if (streamMode.value === 'sse') {
+                await sendSse(text, modelId, appendToken);
+            } else {
+                await sendWebSocket(text, modelId, appendToken);
+            }
+        } catch (error) {
+            console.error('Chat error:', error);
+            replyBody.closest('.message').classList.add('error');
+            replyBody.textContent += (replyBody.textContent ? '\n' : '') + '【错误】' + error.message;
+        } finally {
+            isSending = false;
+            sendBtn.disabled = false;
+            modelSelect.disabled = false;
+            messageInput.focus();
+        }
+    }
+
+    // POST 可以把消息放在请求体中；fetch 负责持续读取 text/event-stream。
+    async function sendSse(text, modelId, onDelta) {
+        const response = await fetch(API_BASE_URL + '/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text, model: modelId })
+        });
+        if (!response.ok || !response.body) {
+            throw new Error('SSE 请求失败 (HTTP ' + response.status + ')');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finished = false;
+
+        function consumeBlock(block) {
+            let eventType = 'message';
+            const data = [];
+            for (const line of block.split(/\r?\n/)) {
+                if (line.startsWith('event:')) eventType = line.slice(6).trim();
+                if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
+            }
+            if (data.length === 0) return;
+            const content = JSON.parse(data.join('\n')).content;
+            if (eventType === 'delta') onDelta(content);
+            if (eventType === 'error') throw new Error(content);
+            if (eventType === 'done') finished = true;
+        }
+
+        try {
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                // 网络数据块不一定恰好等于一个事件；等到空行出现才解析。
+                buffer += decoder.decode(value, { stream: true });
+                let match;
+                while ((match = /\r?\n\r?\n/.exec(buffer)) !== null) {
+                    consumeBlock(buffer.slice(0, match.index));
+                    buffer = buffer.slice(match.index + match[0].length);
+                }
+            }
+            if (!finished) throw new Error('SSE 连接提前结束');
+        } finally {
+            reader.releaseLock();
+        }
+    }
+
+    // 保留原有的 WebSocket 备选方式，与 SSE 共用后端 AgentService.chatStream()。
+    function sendWebSocket(text, modelId, onDelta) {
+        return new Promise((resolve, reject) => {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const socket = new WebSocket(protocol + '//' + location.host + '/ws/chat');
+            let finished = false;
+            socket.onopen = () => socket.send(JSON.stringify({ message: text, model: modelId }));
+            socket.onmessage = event => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'delta') onDelta(data.content);
+                    if (data.type === 'error') {
+                        finished = true;
+                        reject(new Error(data.content));
+                        socket.close();
+                    }
+                    if (data.type === 'done') {
+                        finished = true;
+                        resolve();
+                        socket.close();
+                    }
+                } catch (error) {
+                    finished = true;
+                    reject(error);
+                    socket.close();
+                }
+            };
+            socket.onerror = () => reject(new Error('WebSocket 连接失败'));
+            socket.onclose = () => {
+                if (!finished) reject(new Error('WebSocket 连接提前关闭'));
+            };
+        });
+    }
+
+    async function resetChat() {
+        if (isSending) {
+            showToast('请等待当前回答完成');
+            return;
+        }
+        if (hasMessages && !confirm('确定要清空当前对话吗？')) return;
+        try {
+            const response = await fetch(API_BASE_URL + '/reset', { method: 'POST' });
+            if (!response.ok) throw new Error('重置请求失败');
+            const data = await response.json();
+            welcome.hidden = false;
+            chatBox.replaceChildren(welcome);
+            chatBox.classList.add('empty');
+            hasMessages = false;
+            setSidebarOpen(false);
+            showToast(data.status || '对话已重置');
+            messageInput.focus();
+        } catch (error) {
+            console.error('Reset error:', error);
+            showToast('重置失败：' + error.message);
+        }
+    }
+
+    chatForm.addEventListener('submit', event => {
+        event.preventDefault();
+        sendMessage();
+    });
+    messageInput.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+            event.preventDefault();
+            sendMessage();
+        }
+    });
+    messageInput.addEventListener('input', resizeMessageInput);
+    for (const button of document.querySelectorAll('[data-reset]')) {
+        button.addEventListener('click', resetChat);
+    }
+    for (const button of document.querySelectorAll('[data-prompt]')) {
+        button.addEventListener('click', () => {
+            messageInput.value = button.dataset.prompt;
+            resizeMessageInput();
+            messageInput.focus();
+        });
+    }
+    menuButton.addEventListener('click', () => setSidebarOpen(true));
+    sidebarScrim.addEventListener('click', () => setSidebarOpen(false));
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') setSidebarOpen(false);
+    });
+
+    loadModels();
+</script>
+</body>
+</html>
